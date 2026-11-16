@@ -1,0 +1,355 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
+#include <WiFi.h>
+#include <time.h>
+#include "esp_sleep.h"
+#include "driver/gpio.h"
+
+// Pin sesuai rangkaian Wokwi & ESP32-C3 SuperMini
+#define TFT_CS    7
+#define TFT_DC    2
+#define TFT_RST   3
+#define TFT_MOSI  6
+#define TFT_SCK   4
+#define TFT_BLK   5
+#define TOUCH_PIN GPIO_NUM_1
+
+// Ubah jadi 'true' kalau mau ngetes tampilan ultah sekarang tanpa nunggu 14 Nov
+#define SIMULASI_HARI_ULTAH false
+
+// Konfigurasi WiFi & Tanggal Ultah Erika
+const char* ssid = "Wokwi-GUEST"; // Ganti nama hotspot HP lu pas mau dikasih ke Erika
+const char* password = "";
+const int TARGET_TANGGAL = 14;
+const int TARGET_BULAN   = 11;
+
+Adafruit_ILI9341 tft = Adafruit_ILI9341(&SPI, TFT_DC, TFT_CS, TFT_RST);
+
+// Memori RTC: tetap tersimpan selama baterai terpasang walau Deep Sleep
+RTC_DATA_ATTR bool waktuSudahSinkron = false;
+RTC_DATA_ATTR int animasiTerakhir = -1;
+
+const int TOTAL_ANIMASI_HARIAN = 4;
+const unsigned long DURASI_NYALA = 10000; // 10 detik per sentuhan
+
+#define WARNA_PINK_KUE   0xFBEF
+#define WARNA_COKLAT     0x8200
+#define WARNA_ORANYE     0xFD20
+#define WARNA_UNGU_MUDA  0xC39F
+
+void sinkronWaktuSekali() {
+  // Kalau sudah pernah sinkron, langsung skip tanpa nyalain Wi-Fi lagi
+  if (waktuSudahSinkron) return;
+
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(70, 110);
+  tft.println("Syncing Time...");
+
+  WiFi.begin(ssid, password);
+  int cobaWifi = 0;
+  while (WiFi.status() != WL_CONNECTED && cobaWifi < 20) {
+    delay(400);
+    cobaWifi++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(25200, 0, "pool.ntp.org"); // WIB (UTC+7)
+    struct tm timeinfo;
+    int retry = 0;
+    while (!getLocalTime(&timeinfo, 1000) && retry < 10) {
+      retry++;
+    }
+    if (retry < 10) {
+      waktuSudahSinkron = true;
+    }
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(200);
+  tft.fillScreen(ILI9341_BLACK);
+}
+
+bool cekUltah() {
+  if (SIMULASI_HARI_ULTAH) return true;
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 100)) {
+    return false;
+  }
+  int bulanSekarang   = timeinfo.tm_mon + 1;
+  int tanggalSekarang = timeinfo.tm_mday;
+  return (tanggalSekarang == TARGET_TANGGAL && bulanSekarang == TARGET_BULAN);
+}
+
+int pilihRandom(int jumlahPilihan) {
+  int acak = esp_random() % jumlahPilihan;
+  if (acak == animasiTerakhir) {
+    acak = (acak + 1) % jumlahPilihan;
+  }
+  animasiTerakhir = acak;
+  return acak;
+}
+
+void gambarHati(int x, int y, int r, uint16_t warna) {
+  tft.fillCircle(x - r + 1, y, r, warna);
+  tft.fillCircle(x + r - 1, y, r, warna);
+  tft.fillTriangle(x - (r * 2) + 1, y + 2, x + (r * 2) - 1, y + 2, x, y + (r * 2) + 2, warna);
+}
+
+void tulisUcapanUltah() {
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(76, 172);
+  tft.println("HAPPY BIRTHDAY");
+
+  tft.setTextColor(ILI9341_PINK);
+  tft.setTextSize(3);
+  tft.setCursor(106, 198);
+  tft.println("ERIKA!");
+}
+
+// ================= ANIMASI HARI BIASA =================
+
+void animasiMataHidup() {
+  tft.fillRoundRect(68, 70, 75, 95, 22, ILI9341_CYAN);
+  tft.fillRoundRect(177, 70, 75, 95, 22, ILI9341_CYAN);
+
+  unsigned long mulai = millis();
+  int arahLirik[] = {0, -14, 14, 0};
+  int step = 0;
+
+  while (millis() - mulai < DURASI_NYALA) {
+    int geserX = arahLirik[step % 4];
+    tft.fillRect(75, 85, 61, 65, ILI9341_CYAN);
+    tft.fillRect(184, 85, 61, 65, ILI9341_CYAN);
+
+    tft.fillCircle(105 + geserX, 118, 15, ILI9341_BLACK);
+    tft.fillCircle(214 + geserX, 118, 15, ILI9341_BLACK);
+    tft.fillCircle(100 + geserX, 112, 5, ILI9341_WHITE);
+    tft.fillCircle(209 + geserX, 112, 5, ILI9341_WHITE);
+
+    delay(750);
+    if (millis() - mulai >= DURASI_NYALA) break;
+
+    if (step % 2 == 1) {
+      tft.fillRect(68, 70, 75, 42, ILI9341_BLACK);
+      tft.fillRect(68, 124, 75, 41, ILI9341_BLACK);
+      tft.fillRect(177, 70, 75, 42, ILI9341_BLACK);
+      tft.fillRect(177, 124, 75, 41, ILI9341_BLACK);
+      delay(130);
+      tft.fillRoundRect(68, 70, 75, 95, 22, ILI9341_CYAN);
+      tft.fillRoundRect(177, 70, 75, 95, 22, ILI9341_CYAN);
+    }
+    step++;
+  }
+}
+
+void animasiMelambai() {
+  tft.fillCircle(135, 105, 44, ILI9341_YELLOW);
+  tft.drawLine(112, 98, 122, 88, ILI9341_BLACK);
+  tft.drawLine(122, 88, 132, 98, ILI9341_BLACK);
+  tft.drawLine(138, 98, 148, 88, ILI9341_BLACK);
+  tft.drawLine(148, 88, 158, 98, ILI9341_BLACK);
+  tft.fillCircle(108, 108, 6, ILI9341_PINK);
+  tft.fillCircle(162, 108, 6, ILI9341_PINK);
+  tft.fillRoundRect(120, 112, 30, 16, 8, ILI9341_MAROON);
+
+  tft.setTextColor(ILI9341_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(96, 172);
+  tft.println("HALO ERIKA!");
+
+  unsigned long mulai = millis();
+  int frame = 0;
+  int urutan[] = {0, 1, 2, 1};
+
+  while (millis() - mulai < DURASI_NYALA) {
+    int pos = urutan[frame % 4];
+    tft.fillRect(185, 68, 60, 70, ILI9341_BLACK);
+    int ujungX = (pos == 0) ? 202 : (pos == 1 ? 218 : 232);
+    int ujungY = (pos == 0) ? 82  : (pos == 1 ? 80  : 88);
+
+    for (int i = -4; i <= 4; i++) {
+      tft.drawLine(195 + i, 125, ujungX + i, ujungY, ILI9341_YELLOW);
+    }
+    tft.fillCircle(ujungX, ujungY, 10, ILI9341_YELLOW);
+    frame++;
+    delay(150);
+  }
+}
+
+void animasiMataLove() {
+  unsigned long mulai = millis();
+  bool besar = false;
+
+  while (millis() - mulai < DURASI_NYALA) {
+    if (!besar) {
+      tft.fillRect(75, 85, 70, 65, ILI9341_BLACK);
+      tft.fillRect(175, 85, 70, 65, ILI9341_BLACK);
+    }
+    int r = besar ? 16 : 12;
+    gambarHati(110, 110, r, ILI9341_RED);
+    gambarHati(210, 110, r, ILI9341_RED);
+    besar = !besar;
+    delay(280);
+  }
+}
+
+void animasiNgantuk() {
+  tft.fillRoundRect(72, 120, 70, 10, 5, WARNA_UNGU_MUDA);
+  tft.fillRoundRect(178, 120, 70, 10, 5, WARNA_UNGU_MUDA);
+
+  unsigned long mulai = millis();
+  int step = 0;
+
+  while (millis() - mulai < DURASI_NYALA) {
+    int fase = step % 3;
+    if (fase == 0) {
+      tft.fillRect(200, 32, 80, 75, ILI9341_BLACK);
+      tft.setTextColor(WARNA_UNGU_MUDA);
+      tft.setTextSize(2);
+      tft.setCursor(205, 85);
+      tft.print("z");
+    } else if (fase == 1) {
+      tft.setTextSize(3);
+      tft.setCursor(225, 62);
+      tft.print("z");
+    } else {
+      tft.setTextSize(4);
+      tft.setCursor(250, 35);
+      tft.print("Z");
+    }
+    step++;
+    delay(400);
+  }
+}
+
+// ================= ANIMASI SPESIAL ULANG TAHUN (14 NOV) =================
+
+void animasiEmojiPesta() {
+  tft.fillTriangle(132, 55, 160, 16, 188, 55, ILI9341_MAGENTA);
+  tft.fillCircle(160, 14, 6, ILI9341_YELLOW);
+  tft.fillCircle(160, 102, 46, ILI9341_YELLOW);
+  tft.drawLine(136, 95, 146, 85, ILI9341_BLACK);
+  tft.drawLine(146, 85, 156, 95, ILI9341_BLACK);
+  tft.drawLine(164, 95, 174, 85, ILI9341_BLACK);
+  tft.drawLine(174, 85, 184, 95, ILI9341_BLACK);
+  tft.fillRoundRect(142, 108, 36, 20, 9, ILI9341_MAROON);
+  tft.fillRect(142, 108, 36, 6, ILI9341_YELLOW);
+  tulisUcapanUltah();
+
+  unsigned long mulai = millis();
+  bool alt = false;
+
+  while (millis() - mulai < DURASI_NYALA) {
+    tft.fillRect(55, 30, 40, 110, ILI9341_BLACK);
+    tft.fillRect(225, 30, 40, 110, ILI9341_BLACK);
+
+    if (alt) {
+      tft.fillCircle(75, 40, 5, ILI9341_CYAN);
+      tft.fillRect(235, 35, 9, 9, ILI9341_GREEN);
+      tft.fillCircle(65, 120, 5, ILI9341_PINK);
+      tft.fillRect(245, 115, 9, 9, ILI9341_YELLOW);
+    } else {
+      tft.fillRect(72, 60, 9, 9, ILI9341_YELLOW);
+      tft.fillCircle(240, 60, 5, ILI9341_PINK);
+      tft.fillRect(68, 100, 9, 9, ILI9341_CYAN);
+      tft.fillCircle(235, 130, 5, ILI9341_GREEN);
+    }
+    alt = !alt;
+    delay(320);
+  }
+}
+
+void animasiKueUltah() {
+  tft.fillRect(156, 44, 8, 24, ILI9341_CYAN);
+  tft.fillRoundRect(120, 68, 80, 32, 6, WARNA_PINK_KUE);
+  tft.fillCircle(132, 100, 6, ILI9341_WHITE);
+  tft.fillCircle(160, 102, 6, ILI9341_WHITE);
+  tft.fillCircle(188, 100, 6, ILI9341_WHITE);
+  tft.fillRoundRect(98, 102, 124, 42, 6, WARNA_COKLAT);
+  tft.fillRoundRect(82, 144, 156, 6, 3, ILI9341_LIGHTGREY);
+  tulisUcapanUltah();
+
+  unsigned long mulai = millis();
+  bool alt = false;
+
+  while (millis() - mulai < DURASI_NYALA) {
+    tft.fillRect(148, 22, 24, 21, ILI9341_BLACK);
+    tft.fillRect(55, 30, 40, 50, ILI9341_BLACK);
+    tft.fillRect(225, 30, 40, 50, ILI9341_BLACK);
+
+    int goyang = alt ? -2 : 2;
+    tft.fillCircle(160 + goyang, 34, 6, WARNA_ORANYE);
+    tft.fillCircle(160 + goyang, 36, 3, ILI9341_YELLOW);
+
+    int yLoveKiri  = alt ? 45 : 60;
+    int yLoveKanan = alt ? 60 : 45;
+    gambarHati(75, yLoveKiri, 9, ILI9341_RED);
+    gambarHati(245, yLoveKanan, 9, ILI9341_RED);
+
+    alt = !alt;
+    delay(300);
+  }
+}
+
+void masukModeTidur() {
+  digitalWrite(TFT_BLK, LOW);
+  tft.fillScreen(ILI9341_BLACK);
+
+  // Tunggu tombol/sensor dilepas sepenuhnya
+  while (gpio_get_level(TOUCH_PIN) == 1) {
+    delay(50);
+  }
+  delay(300);
+
+  // Kunci tahanan pull-down supaya GPIO 1 tetap LOW selama tidur
+  gpio_pullup_dis(TOUCH_PIN);
+  gpio_pulldown_en(TOUCH_PIN);
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << TOUCH_PIN, ESP_GPIO_WAKEUP_GPIO_HIGH);
+
+  Serial.println("Masuk Deep Sleep stabil. Klik SENTUH untuk bangun...");
+  Serial.flush();
+  delay(100);
+  esp_deep_sleep_start();
+}
+
+void setup() {
+  Serial.begin(115200);
+  gpio_reset_pin(TOUCH_PIN);
+  gpio_set_direction(TOUCH_PIN, GPIO_MODE_INPUT);
+  gpio_pulldown_en(TOUCH_PIN);
+
+  pinMode(TFT_BLK, OUTPUT);
+  digitalWrite(TFT_BLK, HIGH);
+
+  SPI.begin(TFT_SCK, -1, TFT_MOSI, TFT_CS);
+  tft.begin(40000000);
+  tft.setRotation(1);
+  tft.fillScreen(ILI9341_BLACK);
+
+  // Hanya jalan sekali saat pertama kali nyala
+  sinkronWaktuSekali();
+
+  if (cekUltah()) {
+    int pilihUltah = pilihRandom(2);
+    if (pilihUltah == 0) animasiEmojiPesta();
+    else animasiKueUltah();
+  } else {
+    int pilihHarian = pilihRandom(TOTAL_ANIMASI_HARIAN);
+    switch (pilihHarian) {
+      case 0: animasiMataHidup(); break;
+      case 1: animasiMelambai();  break;
+      case 2: animasiMataLove();  break;
+      case 3: animasiNgantuk();   break;
+    }
+  }
+
+  masukModeTidur();
+}
+
+void loop() {}

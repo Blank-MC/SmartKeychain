@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "author": "Rezya",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-c3-devkitm-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-ili9341",
+      "id": "lcd",
+      "top": -250,
+      "left": 180,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "touch",
+      "top": 150,
+      "left": -100,
+      "attrs": { "color": "blue", "label": "SENTUH" }
+    }
+  ],
+  "connections": [
+    ["esp:3V3.1", "lcd:VCC", "red", ["h0"]],
+    ["esp:GND.1", "lcd:GND", "black", ["h0"]],
+    ["esp:5", "lcd:LED", "orange", ["h0"]],
+    ["esp:7", "lcd:CS", "yellow", ["h0"]],
+    ["esp:3", "lcd:RST", "blue", ["h0"]],
+    ["esp:2", "lcd:D/C", "purple", ["h0"]],
+    ["esp:6", "lcd:MOSI", "green", ["h0"]],
+    ["esp:4", "lcd:SCK", "cyan", ["h0"]],
+    ["esp:3V3.1", "touch:1.l", "red", ["h0"]],
+    ["esp:1", "touch:2.l", "magenta", ["h0"]]
+  ]
+}
